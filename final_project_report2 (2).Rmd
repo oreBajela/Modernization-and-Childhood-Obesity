@@ -1,0 +1,282 @@
+---
+title: 'Modernization and Malnutrition: Economic Development’s Role in Rising Childhood
+  Obesity Across the Developing World'
+author: 'Ore Bajela, Junhao Zhen, Luka Boskovic '
+date: "2025-11-21"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+options(bitmapType = "cairo")
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(countrycode)
+library(gridExtra)
+library(tidyr)
+library(stringr)
+library(reshape2)
+library(naniar)
+library(dplyr)
+library(png)
+library(grid)
+```
+
+```{r}
+bmi_child <- read.csv("child_data.csv")
+gdp_raw <- read.csv("GDP_Per_Capita.csv", skip = 3)
+
+# Select only Country Name, Country Code, and 1990–2022 columns
+gdp_data_clean <- gdp_raw%>%
+  select(Country.Name, Country.Code, starts_with("X")) %>%
+  select(Country.Name, Country.Code, X1990:X2022)
+names(gdp_data_clean) <- sub("^X", "", names(gdp_data_clean))
+
+
+bmi_child_clean <- bmi_child %>%
+  select(
+    Year,
+    Sex,
+    Country = `Country.Region.World`,
+    ISO,
+    Underweight = `Prevalence.of.BMI....2SD..thinness.`,
+    Obesity = `Prevalence.of.BMI...2SD..obesity.`,
+    DoubleBurden = `Combined.prevalence.of.BMI....2SD.and.BMI...2SD..double.burden.of.thinness.and.obesity.`,
+    PropObesityInDouble = `Proportion.of.double.burden.from.obesity`,
+
+  )
+
+merged_data_child <- bmi_child_clean %>%
+  left_join(gdp_long, by = c("ISO" = "Country.Code", "Year" = "Year"))
+```
+
+
+
+## Abstract/Introduction
+
+Childhood obesity has become an important global health issue, especially in developing countries that are experiencing rapid economic and social change. This report analyzes global and regional patterns in childhood obesity from 1990 to 2022, with a focus on how economic development contributes to rising obesity levels. The results show a clear shift from undernutrition to overnutrition, along with significant differences across regions and individual countries. The findings also highlight structural factors such as food systems, trade dependence, and urbanization that shape childhood obesity trends. Two additional themes are considered at the end of the report. The first is the biological susceptibility of Pacific Island populations to weight gain when exposed to Western diets. The second is the growing double burden of malnutrition, which occurs when undernutrition and obesity coexist within a population. Together, these patterns illustrate the complexity of nutritional change in developing regions.
+
+## Results
+
+### 1. Global Transition from Undernutrition to Childhood Obesity (1990–2022)
+
+
+```{r}
+global_trends <- merged_data_child %>%
+  group_by(Year) %>%
+  summarise(
+    mean_obesity = mean(Obesity, na.rm = TRUE),
+    mean_underweight = mean(Underweight, na.rm = TRUE)
+  ) %>%
+  tidyr::pivot_longer(cols = c(mean_obesity, mean_underweight),
+                      names_to = "Indicator", values_to = "Value")
+
+ggplot(global_trends, aes(x = Year, y = Value, color = Indicator)) +
+  geom_line(size = 1.2) +
+  labs(title = "Global Shift from Undernutrition to Obesity Children (1990–2022)",
+       y = "Prevalence", color = "") +
+  theme_minimal(base_size = 13)
+```
+        A key feature of global nutrition over the past three decades is the shift from problems rooted in scarcity to those driven by excess. This transition is visible in population-level data across regions and income groups. Figure 1 illustrates this change by comparing global childhood underweight and obesity rates from 1990 to 2022.
+       
+       This figure shows a steady decline in global underweight prevalence among children over time, while childhood obesity rises sharply. The point where the two lines cross marks a fundamental shift in the dominant form of childhood malnutrition. Research supports this pattern: a recent meta-analysis (Zhang et al.), drawing on more than 45 million children in 154 countries, found that childhood obesity has increased by more than 50% in the past decade alone. They attribute this rise to structural changes associated with modernization, including greater availability of ultra-processed foods, reduced physical activity, and rapid urbanization, factors that many low- and middle-income countries now experience. Taken together, the figure and existing research show that global progress in reducing hunger has been accompanied by new challenges tied to excess weight, reshaping the global nutrition landscape.
+       
+        Having established the global shift from undernutrition toward childhood obesity , it is important to unpack how that transformation plays out differently across regions and in specific countries. 
+        
+        
+### 2. Childhood Obesity and Economic Development by Region
+```{r}
+merged_data_child <- merged_data_child %>%
+  mutate(Region = countrycode(Country, "country.name", "region"))
+
+ggplot(merged_data_child, aes(x = log(GDP_per_capita), y = Obesity)) +
+  geom_point(alpha = 0.5, color = "darkorange") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  facet_wrap(~Region, scales = "free") +
+  labs(title = "Childhood Obesity vs. Economic Development by Region",
+       x = "Log GDP per Capita", y = "Childhood Obesity Prevalence") +
+  theme_minimal(base_size = 12)
+
+```
+    Figure 2 depicts how childhood obesity tends to rise as GDP per capita increases across world regions, but the slope and timing differ dramatically. Latin America and the Middle East/North Africa show the strongest associations: as these regions progress through middle-income stages, childhood obesity surges. By contrast, East Asia & the Pacific and Europe & Central Asia display more moderate, steady increases. Meanwhile, South Asia and Sub-Saharan Africa begin with very low obesity levels but are now climbing, signaling the onset of their own nutrition transitions. North America starts high but shows limited growth, perhaps because obesity has already been prevalent for decades.
+       These regional patterns suggest that income growth alone doesn't fully explain childhood obesity’s rise: local food systems, cultural norms, and policy environments also modulate how development affects health. Supporting this, recent spatial‐analysis research shows that socioeconomic inequalities and regional clustering strongly shape childhood obesity hotspots (Mazza et al.). This suggests that tailored interventions which target clusters rather than treating every country uniformly, are essential for effective policy design to resolve the issue of childhood obesity.
+
+
+### 3.  Countries with the Largest Increases in Childhood Obesity
+
+```{r}
+child_by_year <- merged_data_child %>%
+  group_by(Country, Year) %>%
+  summarise(Obesity = mean(Obesity, na.rm = TRUE), .groups = "drop")
+
+# 3. pivot to wide safely, using mean if duplicates exist (values_fn)
+change <- child_by_year %>%
+  filter(Year %in% c(2000, 2022)) %>%
+  pivot_wider(names_from = Year,
+              values_from = Obesity,
+              names_prefix = "Y",
+              values_fn = list(Obesity = mean)) %>%
+  # rename to simple columns
+  rename(Obesity_2000 = Y2000, Obesity_2022 = Y2022) %>%
+  # keep only countries with both years present
+  filter(!is.na(Obesity_2000) & !is.na(Obesity_2022)) %>%
+  mutate(Change = Obesity_2022 - Obesity_2000)
+
+# 4. select top 10 by Change
+top10_change <- change %>%
+  slice_max(order_by = Change, n = 10)
+
+# 5. plot
+library(ggplot2)
+ggplot(top10_change, aes(x = reorder(Country, Change), y = Change)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 10 Countries with Largest Increase in Childhood Obesity (2000→2022)",
+       x = "", y = "Change in Obesity Prevalence (pp)") +
+  theme_minimal(base_size = 12)
+
+```
+
+      The countries with the most significant increases in childhood obesity are primarily Pacific Island nations. These include the Cook Islands, Niue, Tonga, Tuvalu, and Nauru. Their shared pattern reflects heavy dependence on imported foods and declining traditional food systems. These countries have seen a fast shift toward processed and energy dense products that are more affordable and widely available than local alternatives. Argentina appears on the list as well, which shows that rapid increases are not limited to small island nations. The main similarities among these countries relate to globalization, lifestyle changes, and limited capacity to regulate their food environments. 
+
+       This pattern is strongly supported by empirical evidence. Pengpid & Peltzer (2015), in a multi-country study of six Pacific Island nations, found extremely high prevalence of overweight and obesity among adolescents, driven by diets dominated by sugary drinks and energy-dense imports, reduced physical activity, and weak parental oversight of food choices. Their findings reinforce the broader trend shown in this figure: small, rapidly modernizing countries with limited food sovereignty are experiencing some of the fastest childhood obesity growth rates in the world.
+
+            The regional clustering in Figures 2 and 3 shows that childhood obesity does not rise uniformly across the world; instead, it concentrates in specific economic and geographic contexts. To understand these patterns more clearly, Figures 4 and 5 shift the focus from global and regional trends to individual countries.
+
+
+### 4. Country-Level Comparisons of Childhood Obesity and GDP
+```{r}
+iso_grid <- c(
+  "QAT", "CHL", "PER", "BHS",
+  "EGY", "ZAF", "LBY", "SYC",
+  "MUS", "TUV", "TON", "NRU"
+)
+
+# helper: function that returns a SMALL plot for one ISO
+png_files <- paste0("child_obesity_gdp_", iso_grid, ".png")
+
+# Sanity check: all should be TRUE
+print(png_files)
+print(file.exists(png_files))
+
+# Turn each PNG into a raster grob
+grobs <- lapply(png_files, function(f) {
+  img <- readPNG(f)
+  rasterGrob(img, interpolate = TRUE)
+})
+
+# Open a *big* PNG device for the 3x4 grid
+png(
+  "child_obesity_gdp_3x4_grid.png",
+  width  = 4800,  # pixels (16 in * 300 dpi)
+  height = 3600,  # pixels (12 in * 300 dpi)
+  res    = 300
+)
+
+# Draw the 3x4 grid of your original plots
+grid.arrange(grobs = grobs, ncol = 4, nrow = 3)
+
+# Finish writing the file
+dev.off()
+```
+       These country-specific plots compare GDP per capita with childhood obesity rates from 1990 to 2022. Qatar, Chile, Peru, and Seychelles show strong positive relationships between economic growth and obesity. This reflects rapid dietary modernization and widespread access to processed foods. Many small island states, such as Tonga, Tuvalu, Nauru, and the Bahamas, show steep rises that often exceed regional averages. These increases are linked to heavy reliance on imported food and limited local production. In contrast, countries with economic or political instability, such as Libya and Egypt, show irregular patterns but still display long-term upward trends. The results suggest that GDP shapes the overall direction of obesity trends, but country-specific factors determine the speed and intensity of change.
+
+### 5. Double Burden of Malnutrition in Selected Countries
+```{r}
+double_burden_list <- c("PER", "CHN", "ZAF", "IDN")
+
+plot_data <- bmi_child_clean %>%
+  filter(ISO %in% double_burden_list) %>%
+  mutate(
+    Sex = factor(Sex, levels = c("Boys", "Girls"))
+  ) %>%
+  arrange(ISO, Sex, Year) %>%
+  mutate(
+    total_double_burden = DoubleBurden
+  )
+
+p <- ggplot(plot_data, aes(x = Year)) +
+  geom_ribbon(
+    aes(ymin = 0, ymax = Underweight, fill = "Underweight"),
+    alpha = 0.6
+  ) +
+  geom_ribbon(
+    aes(ymin = Underweight, ymax = Underweight + Obesity, fill = "Obesity"),
+    alpha = 0.6
+  ) +
+  geom_line(
+    aes(y = total_double_burden, color = "Total Double Burden"),
+    linewidth = 1.1
+  ) +
+  scale_fill_manual(
+    name = "Components",
+    values = c("Underweight" = "#1f77b4", "Obesity" = "#ff7f0e")
+  ) +
+  scale_color_manual(
+    name = "",
+    values = c("Total Double Burden" = "black")
+  ) +
+  # 🔥 Two countries per row: 4 panels (Boys/Girls x 2 countries)
+  facet_wrap(~ ISO + Sex, ncol = 4) +
+  theme_minimal(base_size = 16) +
+  theme(
+    aspect.ratio = 1,  # 🔥 make every facet square
+    strip.text = element_text(face = "bold", size = 14),
+    axis.text  = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  ) +
+  labs(
+    title = "Double Burden of Malnutrition in Selected Countries",
+    subtitle = paste("Countries (ISO):", paste(double_burden_list, collapse = ", ")),
+    x = "Year",
+    y = "Rate (Proportion of Children)",
+    caption = "Shaded areas show underweight and obesity; black line shows total double burden."
+  )
+
+n_countries <- plot_data %>%
+  distinct(ISO) %>%
+  nrow()
+
+# two countries per row
+n_rows <- ceiling(n_countries / 2)
+
+square_size <- 6  # inches per square facet (tweak if you want bigger/smaller)
+
+ggsave(
+  filename = "double_burden_squares_2countries_per_row.png",
+  plot = p,
+  width  = square_size * 4,        # 4 squares per row: Boys, Girls x 2 countries
+  height = square_size * n_rows,   # one square-tall row per 2 countries
+  dpi = 300
+)
+```
+       This figure presents trends in underweight and obesity among children in China, Indonesia, Peru, and South Africa. All four countries show declining underweight and rising obesity, although the pace of change varies. Peru’s trajectory, for example, aligns with evidence that rapid reduction in childhood stunting, driven by health and social-sector investments, occurred simultaneously with growing obesity risk (Santos et al., 2021).  China and Indonesia show a long period where both forms of malnutrition are present before obesity becomes the primary concern. In South Africa, underweight declines sharply during the early 2000s, while obesity increases gradually over a longer time period. In several countries, girls have displayed slightly higher obesity levels than boys in recent years. These patterns show how economic development transforms nutritional risk rather than eliminating it.
+
+
+## Discussion
+          The rise of childhood obesity in developing countries reflects the complex relationship between economic development, urbanization, and dietary changes. Rapid income growth and urban migration have increased access to affordable, calorie-dense processed foods while simultaneously reducing physical activity through changes in transportation, schooling, and leisure patterns. This environment fosters obesity, even in populations where undernutrition remains a persistent challenge, creating the double burden of malnutrition.
+          
+        Small, rapidly modernizing countries, particularly in the Pacific, demonstrate how structural factors amplify vulnerability. As Gosling et al. (2021) highlights, explanations based solely on genetics, inadequately capture the role of environmental and dietary shifts. Heavy reliance on imported processed foods, declining traditional diets, and limited opportunities for physical activity interact with population-specific metabolic susceptibilities to produce exceptionally high obesity rates. Similarly, countries like Peru and Indonesia show that improvements in child nutrition do not automatically prevent obesity; instead, rapid economic growth can generate simultaneous reductions in undernutrition and increases in obesity.
+          
+          Addressing these trends requires multifaceted, context-sensitive strategies. Strengthening local food systems and food sovereignty can reduce dependence on processed imports. Policy measures, such as taxes on sugar-sweetened beverages and regulations on marketing unhealthy foods to children, can reshape consumption patterns. Promoting physical activity through schools and urban planning, alongside culturally tailored nutrition education, is also critical. Importantly, interventions must be designed with awareness of local socioeconomic constraints and population-specific risks to ensure equitable and effective outcomes.
+
+
+## Conclusion
+           Childhood obesity in developing countries is a product of modernization and economic growth interacting with environmental and biological factors. While rising incomes and urbanization have improved living standards and reduced undernutrition, they have also introduced new health risks, producing a double burden of malnutrition. Pacific Island nations and other rapidly modernizing contexts illustrate how susceptibility to obesity can be amplified by dietary transitions and dependence on imported foods. Effective solutions require integrated approaches that combine policy regulation, support for local food systems, promotion of physical activity, and culturally informed education. By addressing structural determinants alongside behavioral factors, policymakers can mitigate the rise of childhood obesity while sustaining progress in overall child nutrition.
+
+Works Cited
+Mazza, Orit, et al. “Spatial patterns of childhood obesity clusters linked to socioeconomic inequalities.” Frontiers, 18 August 2025, https://www.frontiersin.org/journals/public-health/articles/10.3389/fpubh.2025.1497090/full.
+Pengpid, Supa, and Karl Peltzer. “Overweight and Obesity and Associated Factors among School-Aged Adolescents in Six Pacific Island Countries in Oceania.” Int. J. Environ. Res. Public Health, vol. 12, no. 11, 2015, pp. 14505-14518, https://www.mdpi.com/1660-4601/12/11/14505.
+Santos, Maria, et al. “The double burden of malnutrition in Peru: An update with a focus on social inequities.” The American Journal of Clinical Nutrition, vol. 113, no. 4, 2021, pp. 865-873. Science Direct,https://www.sciencedirect.com/science/article/pii/S0002916522006542?via%3Dihub.
+
+Zhang, Xinyue, et al. “Global Prevalence of Overweight and Obesity in Children and Adolescents: A Systematic Review and Meta-Analysis.” PubMed Central, 10 June 2024, https://pmc.ncbi.nlm.nih.gov/articles/PMC11165417/. Accessed 20 November 2025.
+
+Gosling, Anna L., Hallie R. Buckley, Elizabeth Matisoo-Smith, and Tony R. Merriman. “Pacific Populations, Metabolic Disease and ‘Just-So Stories’: A Critique of the ‘Thrifty Genotype’ Hypothesis in Oceania.”, Anals of Human Genetics, 
+https://evolutionmedicine.com/wp-content/uploads/2016/09/pacific-populations-metabolic-disease-and-just-so-stories.pdf
+
+
